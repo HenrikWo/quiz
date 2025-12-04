@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Papa from "papaparse";
+
 
 type Question = {
   question: string;
@@ -48,11 +48,14 @@ export default function Home() {
     fetch("/data/questions.csv")
       .then((res) => res.text())
       .then((text) => {
-        const result = Papa.parse(text, { header: true });
-        const parsed: Question[] = result.data.map((row: any) => {
-          const options = [row.option1, row.option2, row.option3, row.option4];
-          const answerIndex = options.findIndex(o => o === row.answer);
-          return { question: row.question, options, answer: answerIndex };
+        const lines = text.split("\n").filter(Boolean);
+        const parsed: Question[] = lines.slice(1).map((line) => {
+          const [q, ...optsAndAnswer] = line.split(",").map(f => f.replace(/^"|"$/g, ""));
+          const options = optsAndAnswer.slice(0, 4);
+          const answerIndex = options.findIndex(
+            (o) => o === optsAndAnswer[4]
+          );
+          return { question: q, options, answer: answerIndex };
         });
         setQuestions(shuffleArray(parsed));
       });
