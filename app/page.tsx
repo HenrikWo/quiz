@@ -26,12 +26,23 @@ function shuffleArray<T>(array: T[]): T[] {
 }
 
 function generateConfetti(): Confetti[] {
-  return Array.from({ length: 50 }, (_, i) => ({
+  // Venstre side - kommer fra venstre
+  const leftSide = Array.from({ length: 60 }, (_, i) => ({
     id: i,
-    left: Math.random() * 100,
-    delay: Math.random() * 0.2,
-    duration: 2 + Math.random() * 1,
+    left: Math.random() * 10 - 10, // -10 til 10
+    delay: Math.random() * 0.3,
+    duration: 2 + Math.random() * 0.6,
   }));
+  
+  // Høyre side - kommer fra høyre
+  const rightSide = Array.from({ length: 60 }, (_, i) => ({
+    id: i + 60,
+    left: 90 + Math.random() * 10, // 90 til 100
+    delay: Math.random() * 0.3,
+    duration: 2 + Math.random() * 0.6,
+  }));
+  
+  return [...leftSide, ...rightSide];
 }
 
 export default function Home() {
@@ -44,23 +55,55 @@ export default function Home() {
   const [showStats, setShowStats] = useState(false);
   const [wrongAnswers, setWrongAnswers] = useState<Question[]>([]);
 
+  // CSV parser som håndterer sitater og komma korrekt
+  const parseCSVLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = "";
+    let insideQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      const nextChar = line[i + 1];
+
+      if (char === '"') {
+        if (insideQuotes && nextChar === '"') {
+          // Escaped quote ""
+          current += '"';
+          i++;
+        } else {
+          // Toggle quote state
+          insideQuotes = !insideQuotes;
+        }
+      } else if (char === "," && !insideQuotes) {
+        // Field separator
+        result.push(current.trim());
+        current = "";
+      } else {
+        current += char;
+      }
+    }
+
+    result.push(current.trim());
+    return result;
+  };
+
   useEffect(() => {
     fetch("/data/questions.csv")
       .then((res) => res.text())
       .then((text) => {
-        const lines = text.split("\n").filter(Boolean);
+        const lines = text.split("\n").filter((line) => line.trim());
         const parsed: Question[] = lines.slice(1).map((line) => {
-          const [q, ...optsAndAnswer] = line.split(",").map(f => f.replace(/^"|"$/g, ""));
-          const options = optsAndAnswer.slice(0, 4);
-          const answerIndex = options.findIndex(
-            (o) => o === optsAndAnswer[4]
-          );
+          const fields = parseCSVLine(line);
+          const q = fields[0];
+          const options = [fields[1], fields[2], fields[3], fields[4]];
+          const correctAnswer = fields[5];
+          const answerIndex = options.findIndex((o) => o === correctAnswer);
+
           return { question: q, options, answer: answerIndex };
         });
         setQuestions(shuffleArray(parsed));
       });
   }, []);
-  
 
   useEffect(() => {
     if (questions.length) {
@@ -69,15 +112,32 @@ export default function Home() {
       setShuffledOptions(shuffled.map((o) => o.opt));
     }
     setSelected(null);
-    setConfetti([]);
   }, [current, questions]);
 
-  const handleNext = () => {
-    if (selected === correctIndexShuffled) {
-      setScore((prev) => prev + 1);
+  // Slett confetti etter animasjon
+  useEffect(() => {
+    if (confetti.length > 0) {
+      const timer = setTimeout(() => {
+        setConfetti([]);
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [confetti]);
+
+  const handleSelect = (index: number) => {
+    setSelected(index);
+    // Trigger confetti når svar blir valgt
+    const isCorrect = index === correctIndexShuffled;
+    if (isCorrect) {
       setConfetti(generateConfetti());
-    } else {
+    }
+  };
+
+  const handleNext = () => {
+    if (selected !== correctIndexShuffled) {
       setWrongAnswers((prev) => [...prev, q]);
+    } else {
+      setScore((prev) => prev + 1);
     }
 
     if (current + 1 < questions.length) {
@@ -171,18 +231,28 @@ export default function Home() {
     <main className="main-container">
       {confetti.length > 0 && (
         <div className="confetti-container">
-          {confetti.map((c) => (
-            <div
-              key={c.id}
-              className="confetti"
-              style={{
-                left: `${c.left}%`,
-                animation: `fall ${c.duration}s linear ${c.delay}s forwards`,
-              }}
-            >
-              {["🎉", "🎊", "⭐", "✨", "🌟"][c.id % 5]}
-            </div>
-          ))}
+          {confetti.map((c) => {
+            const fromLeft = c.id < 60; // Første 60 fra venstre
+            // Større X-bevegelse for naturlig bue
+            const randomX = fromLeft 
+              ? (Math.random() + 0.5) * 300 // 150 til 300px til høyre
+              : -(Math.random() + 0.5) * 300; // -300 til -150px til venstre
+            
+            return (
+              <div
+                key={c.id}
+                className="confetti-square"
+                style={{
+                  left: fromLeft ? "-10%" : "110%",
+                  top: "50%",
+                  animation: `burst ${c.duration}s cubic-bezier(0.34, 1.56, 0.64, 0.1) ${c.delay}s forwards`,
+                  width: Math.random() > 0.5 ? "12px" : "8px",
+                  height: Math.random() > 0.5 ? "12px" : "8px",
+                  "--tx": `${randomX}px`,
+                } as any}
+              />
+            );
+          })}
         </div>
       )}
 
@@ -234,7 +304,7 @@ export default function Home() {
               <button
                 key={idx}
                 className={`option ${optionState}`}
-                onClick={() => setSelected(idx)}
+                onClick={() => handleSelect(idx)}
                 disabled={selected !== null}
               >
                 <span className="option-letter">
@@ -262,10 +332,6 @@ export default function Home() {
         )}
       </div>
 
-
-
-
-
       <style jsx global>{`
         html,
         body,
@@ -282,7 +348,25 @@ export default function Home() {
       <style jsx>{`
         @keyframes fall {
           to {
-            transform: translateY(100vh) rotate(360deg);
+            transform: translateY(100vh) rotate(720deg);
+            opacity: 0;
+          }
+        }
+
+        @keyframes burst {
+          0% {
+            transform: translateY(0) translateX(0) rotate(0deg);
+            opacity: 1;
+          }
+          20% {
+            transform: translateY(-250px) translateX(calc(var(--tx, 0) * 0.6)) rotate(180deg);
+            opacity: 1;
+          }
+          70% {
+            opacity: 0.7;
+          }
+          100% {
+            transform: translateY(120vh) translateX(var(--tx, 0)) rotate(720deg);
             opacity: 0;
           }
         }
@@ -458,7 +542,7 @@ export default function Home() {
           display: flex;
           flex-direction: column;
           gap: 1.2rem;
-          margin-bottom: 2rem;
+          margin-bottom: 0.5rem;
           flex: 1;
         }
 
@@ -635,10 +719,12 @@ export default function Home() {
           z-index: 1000;
         }
 
-        .confetti {
+        .confetti-square {
           position: fixed;
-          font-size: 1.5rem;
+          background: #28a745;
           opacity: 1;
+          will-change: transform, opacity;
+          border-radius: 2px;
         }
 
         /* Results Page */
